@@ -6,7 +6,11 @@
 #include <openssl/err.h>
 #include "csapp.h"
 
-#define MAX_REQUEST_LINE 10000
+#define MAX_REQUEST_LINE 20000
+#define MAX_HOSTNAME_LEN 100
+#define MAX_URI_LEN 10000
+#define MAX_HEADER_LEN 150
+#define MAX_YOUTUBE_AUDIO_URL 10000
 
 SSL *ssl;
 int sock;
@@ -121,19 +125,83 @@ int RecvPacket(FILE *filep)
     }
 }
 
-int main(){
+void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri, char *required_header, char *envp[]){
+    if(video_id == NULL){
+        printf("Error: Please provide a video ID...\n");
+        exit(-1);
+    }
+
+    pid_t pid;
+
+    if((pid =Fork()) == 0){
+        int fd = Open("audiostream.url.out", O_RDWR | O_CREAT | O_TRUNC, 0644);
+        Dup2(fd, STDOUT_FILENO);
+
+        char *argv[4];
+        argv[0] = "/usr/bin/python3";
+        argv[1] = "py_scripts/get_url_from_video_id.py";
+        argv[2] = video_id;
+        argv[3] = 0;
+
+        Execve(argv[0], argv, envp);
+    }
+    Waitpid(pid, NULL, 0);
+
+    int fd = Open("audiostream.url.out", O_RDWR | O_CREAT, 0644);
+
+    char str[MAX_YOUTUBE_AUDIO_URL];
+
+    int len = read(fd, str, MAX_YOUTUBE_AUDIO_URL);
+    str[len] = 0;
+    printf("%s\n", str);
+    Close(fd);
+
+    char *hostp = str + 8;
+    char *hostp_end = strstr(hostp, ".com/") + 4;
+    *hostp_end = 0;
+    strcpy(hostname, hostp);
+
+    *hostp_end = '/';
+    strcpy(request_uri, hostp_end);
+
+    sprintf(required_header, "Host: %s\nConnection: close", hostname);
+}
+
+#define HOSTNAME "r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com"
+#define REQUEST_URI "/videoplayback?expire=1622559759&ei=r_e1YJm5FLKHlQTY9ZqIAQ&ip=58.227.252.171&id=o-ALtkrdKwzddysav0Rzfo-ESbKjAoCycWUAX1sUxdeIzL&itag=140&source=youtube&requiressl=yes&mh=uQ&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sy&ms=au%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=25&initcwndbps=1727500&vprv=1&mime=audio%2Fmp4&ns=UdFPmkQzsnY6tH8m6p2OyvEF&gir=yes&clen=4294541&dur=270.349&lmt=1509193663599179&mt=1622537805&fvip=2&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=i05CE_oLz_-Qr2KB&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgXNJDvYD1b9rwsonQ-2QrKiFEJdE1V9YrOUqfv9IzjKcCIHQqFlhmrbqdHDdjdR6xkqhwuBaLDk5g5A2iHrneAK9h&sig=AOq0QJ8wRQIhAJBGC5YOaKqTLyU_uJtQajfQ176l753g4TjN7dPdGsRtAiBfRPKNiLH3UPLNM3n7Q2JsTQh41sM_2sWD-iVHKS5DMg=="
+
+int main(int argc, char *argv[], char *envp[]){
     int clientfd;
     struct addrinfo hints, *listp, *p;
     char buf[MAXLINE];
 
-    char *hostname = "r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com";
-    char *request_uri = "/videoplayback?expire=1622559759&ei=r_e1YJm5FLKHlQTY9ZqIAQ&ip=58.227.252.171&id=o-ALtkrdKwzddysav0Rzfo-ESbKjAoCycWUAX1sUxdeIzL&itag=140&source=youtube&requiressl=yes&mh=uQ&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sy&ms=au%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=25&initcwndbps=1727500&vprv=1&mime=audio%2Fmp4&ns=UdFPmkQzsnY6tH8m6p2OyvEF&gir=yes&clen=4294541&dur=270.349&lmt=1509193663599179&mt=1622537805&fvip=2&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=i05CE_oLz_-Qr2KB&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgXNJDvYD1b9rwsonQ-2QrKiFEJdE1V9YrOUqfv9IzjKcCIHQqFlhmrbqdHDdjdR6xkqhwuBaLDk5g5A2iHrneAK9h&sig=AOq0QJ8wRQIhAJBGC5YOaKqTLyU_uJtQajfQ176l753g4TjN7dPdGsRtAiBfRPKNiLH3UPLNM3n7Q2JsTQh41sM_2sWD-iVHKS5DMg==";
-    char *required_header = "Host: r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com\nConnection: close";
+
+
+    /*
+    char *hostname = HOSTNAME;
+    char *request_uri = REQUEST_URI;
+    char *required_header = "Host: " HOSTNAME "\nConnection: close";
+    char *port = "443";
+    */
+
+    /*
+    hostname = "stackoverflow.com";
+    request_uri = "/";
+    required_header = "Host: stackoverflow.com\nConnection: close";
+    */
+
+    char hostname[MAX_HOSTNAME_LEN];
+    char request_uri[MAX_URI_LEN];
+    char required_header[MAX_HEADER_LEN];
+
     char *port = "443";
 
-    //hostname = "stackoverflow.com";
-    //request_uri = "/";
-    //required_header = "Host: stackoverflow.com\nConnection: close";
+    getRemoteInfoFromVideoId(argv[1], hostname, request_uri, required_header, envp);
+
+
+
+
+
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_socktype = SOCK_STREAM;
