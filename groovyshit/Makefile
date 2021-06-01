@@ -7,4 +7,4 @@ fork: forktest.c csapp.c csapp.h
 	gcc -o fork forktest.c csapp.c csapp.h -lpthread
 	
 clean:
-	rm -rf test *.out fork *.m4a
+	rm -rf test *.out fork *.m4a *.mp3
