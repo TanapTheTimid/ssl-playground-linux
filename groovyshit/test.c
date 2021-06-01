@@ -61,8 +61,6 @@ int main(){
     char *required_header = "Host: r5---sn-n3cgv5qc5oq-jwwe.googlevideo.com";
     char *port = "443";
 
-    //hostname = "www.google.com";
-
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_INET;              //use ipv4
@@ -104,8 +102,8 @@ int main(){
     }
     printf ("SSL connection using %s\n", SSL_get_cipher (ssl));
 
-
-    //char *request = "GET / HTTP/1.1\r\n\r\n";
+    //start transaction;;;;;;
+    
     char request[10000];
     sprintf(request, "GET %s HTTP/1.1\n%s\r\n\r\n", request_line, required_header);
     printf("%s", request);
