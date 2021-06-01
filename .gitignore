@@ -54,3 +54,4 @@ dkms.conf
 # Custom
 test
 fork
+*.m4a

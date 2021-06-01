@@ -11,6 +11,9 @@
 #define MAX_URI_LEN 10000
 #define MAX_HEADER_LEN 150
 #define MAX_YOUTUBE_AUDIO_URL 10000
+#define MAX_FILENAME_LEN 100
+
+#define FILE_EXT ".m4a"
 
 SSL *ssl;
 int sock;
@@ -125,7 +128,7 @@ int RecvPacket(FILE *filep)
     }
 }
 
-void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri, char *required_header, char *envp[]){
+void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri, char *required_header, char *filename, char *envp[]){
     if(video_id == NULL){
         printf("Error: Please provide a video ID...\n");
         exit(-1);
@@ -162,9 +165,22 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
     strcpy(hostname, hostp);
 
     *hostp_end = '/';
+    char *urip_end = strstr(hostp_end, "\n");
+    *urip_end = 0;
     strcpy(request_uri, hostp_end);
 
+    char filename_no_ext[MAX_FILENAME_LEN - 10];
+    char *namep_end = strstr(urip_end + 1, "\n");
+    *namep_end = 0;
+    strncpy(filename_no_ext, urip_end + 1, MAX_FILENAME_LEN - 10 - 1);
+    filename_no_ext[MAX_FILENAME_LEN - 10 - 1] = 0;
+
+    sprintf(filename, "%s"FILE_EXT, filename_no_ext);
+
     sprintf(required_header, "Host: %s\nConnection: close", hostname);
+
+    //printf("%s\n\n%s\n\n%s\n\n%s\n", hostname, request_uri, required_header, filename);
+    //exit(0);
 }
 
 #define HOSTNAME "r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com"
@@ -193,10 +209,10 @@ int main(int argc, char *argv[], char *envp[]){
     char hostname[MAX_HOSTNAME_LEN];
     char request_uri[MAX_URI_LEN];
     char required_header[MAX_HEADER_LEN];
-
+    char filename[MAX_FILENAME_LEN];
     char *port = "443";
 
-    getRemoteInfoFromVideoId(argv[1], hostname, request_uri, required_header, envp);
+    getRemoteInfoFromVideoId(argv[1], hostname, request_uri, required_header, filename, envp);
 
 
 
@@ -252,7 +268,7 @@ int main(int argc, char *argv[], char *envp[]){
 
     SSL_write(ssl, request, strlen(request));
 
-    FILE *filep = fopen("rec.out","w+");
+    FILE *filep = fopen(filename,"w+");
     RecvPacket(filep);
 
     fclose(filep);
