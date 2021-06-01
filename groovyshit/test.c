@@ -56,9 +56,9 @@ int main(){
     struct addrinfo hints, *listp, *p;
     char buf[MAXLINE];
 
-    char *hostname = "r3---sn-n3cgv5qc5oq-jwwl.googlevideo.com";
-    char *request_line = "/videoplayback?expire=1622500418&ei=4g-1YPC0Cqa0lQTniY2wDg&ip=58.227.252.171&id=o-AJp0HX5T5hybFisKy1F9DtObcD7OUumdWY1bkOkfPLrA&itag=140&source=youtube&requiressl=yes&mh=4R&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sk&ms=au%2Crdu&mv=m&mvi=3&pcm2cms=yes&pl=25&initcwndbps=1121250&vprv=1&mime=audio%2Fmp4&ns=qs00s5tesXHPQ5zbKfROGukF&gir=yes&clen=72703826&dur=4492.317&lmt=1605913501856470&mt=1622478540&fvip=3&keepalive=yes&fexp=24001373%2C24007246&c=WEB&txp=5531432&n=C4nFhYGsCjp8UwXc&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRgIhAKuayQohTHrI6kMGbjJT1KAi_dAuFt6QAFtOZGiBnJLtAiEAvYNPlGUlJhbyb5QzvbqkvM0jPp05H6ofpNyUEJNAN7E%3D&sig=AOq0QJ8wRQIhAPb7q10X6wVpFiVE_GGP99wmRO-fXIB3eOfasjk99s2rAiB4JigJZEZ9TkB2OQE4N4nyMVdCNY7S5IRUHXlAySZKVg==";
-    char *required_header = "Host: r3---sn-n3cgv5qc5oq-jwwl.googlevideo.com";
+    char *hostname = "r5---sn-n3cgv5qc5oq-jwwe.googlevideo.com";
+    char *request_line = "/videoplayback?expire=1622544840&ei=aL21YNaxAouilQSNjorgDg&ip=58.227.252.171&id=o-ANwxfvv9j-9rq4FB7yWaWgGKUb32y90q66XNenGv7_KD&itag=251&source=youtube&requiressl=yes&mh=ph&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwe%2Csn-n3cgv5qc5oq-bh2er&ms=au%2Crdu&mv=m&mvi=5&pl=25&initcwndbps=1417500&vprv=1&mime=audio%2Fwebm&ns=qtb1bk5WdOz87P4O4BC0CRgF&gir=yes&clen=3963609&dur=240.041&lmt=1497071637633052&mt=1622522926&fvip=5&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=0o7XMM8fs77iIF94&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&sig=AOq0QJ8wRQIhAMb2Yv0qTRlr5sVOKWs14Y6m1tuwtZO9FNa3tVVXlk5aAiB_5tZbHpC7pJvQUi1tiunP2kmIknWe-ln8b86EaWVs-Q%3D%3D&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgSSZAj72PtBVoQA9_lC0pnOVPeg7Da79Dc-jZepeZsJwCIGT--StKd7CKhwNx262hOG6QPWRPt-OX6u3vadb0uGW8";
+    char *required_header = "Host: r5---sn-n3cgv5qc5oq-jwwe.googlevideo.com";
     char *port = "443";
 
     //hostname = "www.google.com";
