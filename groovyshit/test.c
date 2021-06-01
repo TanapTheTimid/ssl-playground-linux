@@ -198,7 +198,7 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
 
     sprintf(required_header, "Host: %s\nConnection: close", hostname);
 
-    printf("%s\n\n%s\n\n%s\n\n%s\n", hostname, request_uri, required_header, filename);
+    //printf("%s\n\n%s\n\n%s\n\n%s\n", hostname, request_uri, required_header, filename);
     //exit(0);
 }
 
