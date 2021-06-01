@@ -85,6 +85,8 @@ int getContentLength(char *header){
 
 int RecvPacket(FILE *filep)
 {
+    int loopcnt = 0;
+
     int max_len = 1000;
     int len;
     int total_read_bytes = 0;
@@ -111,6 +113,11 @@ int RecvPacket(FILE *filep)
         //buf[len]=0;
         //printf("%s\n",buf);
         //fprintf(filep, "%s", buf);
+
+        if(loopcnt % 128 == 0){
+            printf("%d / %d\n", total_read_bytes, content_length);
+        }
+        loopcnt++;
 
         fwrite(buf, sizeof(char), len, filep);
         fflush(filep);
