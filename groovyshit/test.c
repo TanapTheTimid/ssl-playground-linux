@@ -100,8 +100,11 @@ int RecvPacket(FILE *filep)
     int content_length = getContentLength(headerbuf);
 
     if(content_length < 0){
-        printf("ERROR: unexpected content type (no content length given)");
+        printf("ERROR: unexpected content type (no content length given)\n");
         return -1;
+    }else if(content_length == 0){
+        printf("ERROR: unexpected redirect... retrying from start.\n");
+        return -2;
     }
 
     printf("Content___length: %d\n\n", content_length);
@@ -132,6 +135,14 @@ int RecvPacket(FILE *filep)
             return 0;
         if (err == SSL_ERROR_ZERO_RETURN || err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL)
             return -1;
+    }
+}
+
+void legalizeFilename(char *filename){
+    char *p = strchr(filename, '/');
+    while(p){
+        *p = ' ';
+        p = strchr(p, '/');
     }
 }
 
@@ -183,10 +194,11 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
     filename_no_ext[MAX_FILENAME_LEN - 10 - 1] = 0;
 
     sprintf(filename, "%s"FILE_EXT, filename_no_ext);
+    legalizeFilename(filename);
 
     sprintf(required_header, "Host: %s\nConnection: close", hostname);
 
-    //printf("%s\n\n%s\n\n%s\n\n%s\n", hostname, request_uri, required_header, filename);
+    printf("%s\n\n%s\n\n%s\n\n%s\n", hostname, request_uri, required_header, filename);
     //exit(0);
 }
 
@@ -194,9 +206,12 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
 #define REQUEST_URI "/videoplayback?expire=1622559759&ei=r_e1YJm5FLKHlQTY9ZqIAQ&ip=58.227.252.171&id=o-ALtkrdKwzddysav0Rzfo-ESbKjAoCycWUAX1sUxdeIzL&itag=140&source=youtube&requiressl=yes&mh=uQ&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sy&ms=au%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=25&initcwndbps=1727500&vprv=1&mime=audio%2Fmp4&ns=UdFPmkQzsnY6tH8m6p2OyvEF&gir=yes&clen=4294541&dur=270.349&lmt=1509193663599179&mt=1622537805&fvip=2&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=i05CE_oLz_-Qr2KB&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgXNJDvYD1b9rwsonQ-2QrKiFEJdE1V9YrOUqfv9IzjKcCIHQqFlhmrbqdHDdjdR6xkqhwuBaLDk5g5A2iHrneAK9h&sig=AOq0QJ8wRQIhAJBGC5YOaKqTLyU_uJtQajfQ176l753g4TjN7dPdGsRtAiBfRPKNiLH3UPLNM3n7Q2JsTQh41sM_2sWD-iVHKS5DMg=="
 
 int main(int argc, char *argv[], char *envp[]){
-    int clientfd;
+    int clientfd, errval;
     struct addrinfo hints, *listp, *p;
     char buf[MAXLINE];
+
+    init_openssl_2();
+    const SSL_METHOD *meth = TLSv1_2_client_method();
 
 
 
@@ -219,65 +234,69 @@ int main(int argc, char *argv[], char *envp[]){
     char filename[MAX_FILENAME_LEN];
     char *port = "443";
 
-    getRemoteInfoFromVideoId(argv[1], hostname, request_uri, required_header, filename, envp);
+
+
+    do {
+
+        getRemoteInfoFromVideoId(argv[1], hostname, request_uri, required_header, filename, envp);
 
 
 
 
+        memset(&hints, 0, sizeof(struct addrinfo));
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_family = AF_INET;              //use ipv4
+        hints.ai_flags = AI_NUMERICSERV;        //numeric port
+        hints.ai_flags |= AI_ADDRCONFIG;        //use supported protocols
+        Getaddrinfo(hostname, port, &hints, &listp);
 
+        for (p = listp; p; p = p->ai_next) {
+            Getnameinfo(listp->ai_addr, listp->ai_addrlen, buf, MAXLINE, NULL, 0, NI_NUMERICHOST);
+            printf("%s:%d\n", buf, ((struct sockaddr_in*)(listp->ai_addr))->sin_port);
+        }
 
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_family = AF_INET;              //use ipv4
-    hints.ai_flags = AI_NUMERICSERV;        //numeric port
-    hints.ai_flags |= AI_ADDRCONFIG;        //use supported protocols
-    Getaddrinfo(hostname, port, &hints, &listp);
+        clientfd = socket(listp->ai_family, listp->ai_socktype, listp->ai_protocol);
+        if(clientfd < 0){
+            printf("ERROR: cannot create socket.\n");
+            return -1;
+        }
 
-    for (p = listp; p; p = p->ai_next) {
-        Getnameinfo(listp->ai_addr, listp->ai_addrlen, buf, MAXLINE, NULL, 0, NI_NUMERICHOST);
-        printf("%s:%d\n", buf, ((struct sockaddr_in*)(listp->ai_addr))->sin_port);
-    }
+        if (connect(clientfd, listp->ai_addr, listp->ai_addrlen) < 0){
+            printf("ERROR: cannot connect.\n");
+            return -1;
+        }
 
-    clientfd = socket(listp->ai_family, listp->ai_socktype, listp->ai_protocol);
-    if(clientfd < 0){
-        printf("ERROR: cannot create socket.\n");
-        return -1;
-    }
+        
 
-    if (connect(clientfd, listp->ai_addr, listp->ai_addrlen) < 0){
-        printf("ERROR: cannot connect.\n");
-        return -1;
-    }
+        SSL_CTX *ctx = SSL_CTX_new(meth);
+        ssl = SSL_new(ctx);
+        if (!ssl) {
+            printf("Error creating SSL.\n");
+            return -1;
+        }
+        //sock = SSL_get_fd(ssl);
+        SSL_set_fd(ssl, clientfd);
+        int err = SSL_connect(ssl);
+        if (err <= 0) {
+            printf("Error creating SSL connection.  err=%x\n", err);
+            return -1;
+        }
+        printf ("SSL connection using %s\n", SSL_get_cipher (ssl));
 
-    init_openssl_2();
+        //start transaction;;;;;;
 
-    const SSL_METHOD *meth = TLSv1_2_client_method();
-    SSL_CTX *ctx = SSL_CTX_new(meth);
-    ssl = SSL_new(ctx);
-    if (!ssl) {
-        printf("Error creating SSL.\n");
-        return -1;
-    }
-    //sock = SSL_get_fd(ssl);
-    SSL_set_fd(ssl, clientfd);
-    int err = SSL_connect(ssl);
-    if (err <= 0) {
-        printf("Error creating SSL connection.  err=%x\n", err);
-        return -1;
-    }
-    printf ("SSL connection using %s\n", SSL_get_cipher (ssl));
+        char request[MAX_REQUEST_LINE];
+        sprintf(request, "GET %s HTTP/1.1\n%s\r\n\r\n", request_uri, required_header);
+        printf("%s", request);
 
-    //start transaction;;;;;;
+        SSL_write(ssl, request, strlen(request));
 
-    char request[MAX_REQUEST_LINE];
-    sprintf(request, "GET %s HTTP/1.1\n%s\r\n\r\n", request_uri, required_header);
-    printf("%s", request);
+        FILE *filep = fopen(filename,"w+");
+        errval = RecvPacket(filep);
 
-    SSL_write(ssl, request, strlen(request));
-
-    FILE *filep = fopen(filename,"w+");
-    RecvPacket(filep);
-
-    fclose(filep);
-    Close(clientfd);
+        fclose(filep);
+        SSL_shutdown(ssl);
+        SSL_clear(ssl);
+        Close(clientfd);
+    } while (errval == -2);
 }
