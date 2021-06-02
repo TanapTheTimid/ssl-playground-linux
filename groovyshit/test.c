@@ -16,7 +16,7 @@
 #define FILE_EXT ".m4a"
 
 SSL *ssl;
-int sock;
+
 
 /**
  * Initialise OpenSSL
@@ -103,7 +103,7 @@ int RecvPacket(FILE *filep)
         printf("ERROR: unexpected content type (no content length given)\n");
         return -1;
     }else if(content_length == 0){
-        printf("ERROR: unexpected redirect... retrying from start.\n");
+        printf("ERROR: unexpected redirect... retrying from start.\n\n");
         return -2;
     }
 
@@ -202,8 +202,8 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
     //exit(0);
 }
 
-#define HOSTNAME "r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com"
-#define REQUEST_URI "/videoplayback?expire=1622559759&ei=r_e1YJm5FLKHlQTY9ZqIAQ&ip=58.227.252.171&id=o-ALtkrdKwzddysav0Rzfo-ESbKjAoCycWUAX1sUxdeIzL&itag=140&source=youtube&requiressl=yes&mh=uQ&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sy&ms=au%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=25&initcwndbps=1727500&vprv=1&mime=audio%2Fmp4&ns=UdFPmkQzsnY6tH8m6p2OyvEF&gir=yes&clen=4294541&dur=270.349&lmt=1509193663599179&mt=1622537805&fvip=2&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=i05CE_oLz_-Qr2KB&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgXNJDvYD1b9rwsonQ-2QrKiFEJdE1V9YrOUqfv9IzjKcCIHQqFlhmrbqdHDdjdR6xkqhwuBaLDk5g5A2iHrneAK9h&sig=AOq0QJ8wRQIhAJBGC5YOaKqTLyU_uJtQajfQ176l753g4TjN7dPdGsRtAiBfRPKNiLH3UPLNM3n7Q2JsTQh41sM_2sWD-iVHKS5DMg=="
+//#define HOSTNAME "r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com"
+//#define REQUEST_URI "/videoplayback?expire=1622559759&ei=r_e1YJm5FLKHlQTY9ZqIAQ&ip=58.227.252.171&id=o-ALtkrdKwzddysav0Rzfo-ESbKjAoCycWUAX1sUxdeIzL&itag=140&source=youtube&requiressl=yes&mh=uQ&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sy&ms=au%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=25&initcwndbps=1727500&vprv=1&mime=audio%2Fmp4&ns=UdFPmkQzsnY6tH8m6p2OyvEF&gir=yes&clen=4294541&dur=270.349&lmt=1509193663599179&mt=1622537805&fvip=2&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=i05CE_oLz_-Qr2KB&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgXNJDvYD1b9rwsonQ-2QrKiFEJdE1V9YrOUqfv9IzjKcCIHQqFlhmrbqdHDdjdR6xkqhwuBaLDk5g5A2iHrneAK9h&sig=AOq0QJ8wRQIhAJBGC5YOaKqTLyU_uJtQajfQ176l753g4TjN7dPdGsRtAiBfRPKNiLH3UPLNM3n7Q2JsTQh41sM_2sWD-iVHKS5DMg=="
 
 int main(int argc, char *argv[], char *envp[]){
     int clientfd, errval;
@@ -211,7 +211,7 @@ int main(int argc, char *argv[], char *envp[]){
     char buf[MAXLINE];
 
     init_openssl_2();
-    const SSL_METHOD *meth = TLSv1_2_client_method();
+    const SSL_METHOD *meth = TLS_client_method();
 
 
 
