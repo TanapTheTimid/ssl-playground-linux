@@ -235,68 +235,69 @@ int main(int argc, char *argv[], char *envp[]){
     char *port = "443";
 
 
+    for(int i = 1; i < argc; i++){
+        do {
 
-    do {
-
-        getRemoteInfoFromVideoId(argv[1], hostname, request_uri, required_header, filename, envp);
-
-
+            getRemoteInfoFromVideoId(argv[i], hostname, request_uri, required_header, filename, envp);
 
 
-        memset(&hints, 0, sizeof(struct addrinfo));
-        hints.ai_socktype = SOCK_STREAM;
-        hints.ai_family = AF_INET;              //use ipv4
-        hints.ai_flags = AI_NUMERICSERV;        //numeric port
-        hints.ai_flags |= AI_ADDRCONFIG;        //use supported protocols
-        Getaddrinfo(hostname, port, &hints, &listp);
 
-        for (p = listp; p; p = p->ai_next) {
-            Getnameinfo(listp->ai_addr, listp->ai_addrlen, buf, MAXLINE, NULL, 0, NI_NUMERICHOST);
-            printf("%s:%d\n", buf, ((struct sockaddr_in*)(listp->ai_addr))->sin_port);
-        }
 
-        clientfd = socket(listp->ai_family, listp->ai_socktype, listp->ai_protocol);
-        if(clientfd < 0){
-            printf("ERROR: cannot create socket.\n");
-            return -1;
-        }
+            memset(&hints, 0, sizeof(struct addrinfo));
+            hints.ai_socktype = SOCK_STREAM;
+            hints.ai_family = AF_INET;              //use ipv4
+            hints.ai_flags = AI_NUMERICSERV;        //numeric port
+            hints.ai_flags |= AI_ADDRCONFIG;        //use supported protocols
+            Getaddrinfo(hostname, port, &hints, &listp);
 
-        if (connect(clientfd, listp->ai_addr, listp->ai_addrlen) < 0){
-            printf("ERROR: cannot connect.\n");
-            return -1;
-        }
+            for (p = listp; p; p = p->ai_next) {
+                Getnameinfo(listp->ai_addr, listp->ai_addrlen, buf, MAXLINE, NULL, 0, NI_NUMERICHOST);
+                printf("%s:%d\n", buf, ((struct sockaddr_in*)(listp->ai_addr))->sin_port);
+            }
 
-        
+            clientfd = socket(listp->ai_family, listp->ai_socktype, listp->ai_protocol);
+            if(clientfd < 0){
+                printf("ERROR: cannot create socket.\n");
+                return -1;
+            }
 
-        SSL_CTX *ctx = SSL_CTX_new(meth);
-        ssl = SSL_new(ctx);
-        if (!ssl) {
-            printf("Error creating SSL.\n");
-            return -1;
-        }
-        //sock = SSL_get_fd(ssl);
-        SSL_set_fd(ssl, clientfd);
-        int err = SSL_connect(ssl);
-        if (err <= 0) {
-            printf("Error creating SSL connection.  err=%x\n", err);
-            return -1;
-        }
-        printf ("SSL connection using %s\n", SSL_get_cipher (ssl));
+            if (connect(clientfd, listp->ai_addr, listp->ai_addrlen) < 0){
+                printf("ERROR: cannot connect.\n");
+                return -1;
+            }
 
-        //start transaction;;;;;;
+            
 
-        char request[MAX_REQUEST_LINE];
-        sprintf(request, "GET %s HTTP/1.1\n%s\r\n\r\n", request_uri, required_header);
-        printf("%s", request);
+            SSL_CTX *ctx = SSL_CTX_new(meth);
+            ssl = SSL_new(ctx);
+            if (!ssl) {
+                printf("Error creating SSL.\n");
+                return -1;
+            }
+            //sock = SSL_get_fd(ssl);
+            SSL_set_fd(ssl, clientfd);
+            int err = SSL_connect(ssl);
+            if (err <= 0) {
+                printf("Error creating SSL connection.  err=%x\n", err);
+                return -1;
+            }
+            printf ("SSL connection using %s\n", SSL_get_cipher (ssl));
 
-        SSL_write(ssl, request, strlen(request));
+            //start transaction;;;;;;
 
-        FILE *filep = fopen(filename,"w+");
-        errval = RecvPacket(filep);
+            char request[MAX_REQUEST_LINE];
+            sprintf(request, "GET %s HTTP/1.1\n%s\r\n\r\n", request_uri, required_header);
+            printf("%s", request);
 
-        fclose(filep);
-        SSL_shutdown(ssl);
-        SSL_clear(ssl);
-        Close(clientfd);
-    } while (errval == -2);
+            SSL_write(ssl, request, strlen(request));
+
+            FILE *filep = fopen(filename,"w+");
+            errval = RecvPacket(filep);
+
+            fclose(filep);
+            SSL_shutdown(ssl);
+            SSL_clear(ssl);
+            Close(clientfd);
+        } while (errval == -2);
+    }
 }
