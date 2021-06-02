@@ -54,5 +54,6 @@ dkms.conf
 # Custom
 test
 fork
+discord
 *.m4a
 *.mp3

@@ -35,7 +35,7 @@ void init_openssl() {
 
 void init_openssl_2(){
     SSL_library_init();
-    SSLeay_add_ssl_algorithms();
+    ////SSLeay_add_ssl_algorithms();
     SSL_load_error_strings();
 }
 
