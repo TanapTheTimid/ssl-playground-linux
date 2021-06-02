@@ -21,3 +21,14 @@ Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
 Sec-WebSocket-Version: 13
+
+       80         9         0         0 
+        0         0         0         0 
+       23        4b        ab        26 
+       5e        e3        d0         4 
+       31        93        89        1c 
+       7e        d2        87         4 
+       3a        c1        91         6 
+       25        9e
+
+{"t":null,"s":null,"op":10,"d":{"heartbeat_interval":41250,"_trace":["[\"gateway-prd-main-lz1z\",{\"micros\":0.0}]"]}}

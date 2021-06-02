@@ -9,6 +9,9 @@ fork: forktest.c csapp.c csapp.h
 discord: discord.c csapp.c csapp.h
 	gcc -o discord discord.c csapp.c csapp.h -lpthread -lssl -lcrypto
 
+discordrun : discord PHONY
+	./discord
+
 discordformat: discord.c
 	clang-format-10 --style=WebKit discord.c > discord.c.format && rm discord.c && cat discord.c.format > discord.c && rm discord.c.format
 	
