@@ -10,6 +10,8 @@
 #define DISCORD_GATEWAY_VERSION 9
 #define DISCORD_GATEWAY_ENCODING "json"
 
+#define MAX_REQUEST_LINE 20000
+
 SSL* ssl;
 
 void init_openssl_2()
@@ -18,7 +20,36 @@ void init_openssl_2()
     SSL_load_error_strings();
 }
 
-int simpleReceive(FILE *filep)
+void getHeader(char* headerbuf)
+{
+    char* hbp = headerbuf;
+
+    char four[4];
+    four[0] = 0;
+    four[1] = 0;
+    four[2] = 0;
+    four[3] = 0;
+
+    char buf[10];
+    int len;
+
+    do {
+        len = SSL_read(ssl, buf, 1);
+
+        *hbp = buf[0];
+        hbp++;
+
+        four[0] = four[1];
+        four[1] = four[2];
+        four[2] = four[3];
+        four[3] = buf[0];
+
+    } while (len > 0 && !(four[0] == '\r' && four[1] == '\n' && four[2] == '\r' && four[3] == '\n'));
+
+    *hbp = 0;
+}
+
+int simpleReceive()
 {
     int loopcnt = 0;
 
@@ -31,9 +62,49 @@ int simpleReceive(FILE *filep)
         len = SSL_read(ssl, buf, max_len);
         total_read_bytes += len;
 
-        buf[len]=0;
-        printf("%s",buf);
-    } while (len > 0);
+        buf[len] = 0;
+        printf("%s", buf);
+        fflush(stdout);
+    } while (len > 0 && total_read_bytes < 120);
+}
+
+int experimentalHeartbeat()
+{
+    int mask = 0xE35E26AB;
+
+    unsigned char ws_frame[1000];
+    unsigned char* wsf_ptr = ws_frame;
+
+    //flags and opcode
+    ws_frame[0] = 0x81;
+
+    //mask and payload
+    ws_frame[1] = 37 + 128;
+
+    //set the mask
+    *((unsigned int*)(wsf_ptr + 2)) = mask;
+
+    strcpy(wsf_ptr + 6, "{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}");
+
+    wsf_ptr[6 + 37] = 0;
+
+    printf("\n\nBITMASKING FRAME\n");
+
+    unsigned char* mask_bytes = (char*)&mask;
+
+    for (int i = 0; i < 37; i++) {
+        wsf_ptr[6 + i] = wsf_ptr[6 + i] ^ mask_bytes[i % 4];
+    }
+
+    for (int i = 0; i < 6 + 37; i++) {
+        if (i % 4 == 0)
+            printf("\n");
+        printf(" %8x ", wsf_ptr[i]);
+    }
+
+    printf("\n\nREADY TO SEND\n");
+
+    SSL_write(ssl, ws_frame, 6 + 37);
 }
 
 int main()
@@ -45,16 +116,14 @@ int main()
     init_openssl_2();
     const SSL_METHOD* meth = TLS_client_method();
 
-
-
-
-    char* hostname = "stackoverflow.com";
-    char* request_uri = "/";
-    char* required_header = "Host: stackoverflow.com\nConnection: close";
+    char* hostname = "gateway.discord.gg";
+    char* request_uri = "/?v=9&encoding=json";
+    char* required_header = "Host: gateway.discord.gg:443\r\n"
+                            "Upgrade: websocket\r\n"
+                            "Connection: Upgrade\r\n"
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                            "Sec-WebSocket-Version: 13";
     char* port = "443";
-
-
-
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_socktype = SOCK_STREAM;
@@ -97,13 +166,16 @@ int main()
 
     // start transaction;;;;;;
 
-
-
     char request[MAX_REQUEST_LINE];
-    sprintf(request, "GET %s HTTP/1.1\n%s\r\n\r\n", request_uri, required_header);
-    printf("%s", request);
+    sprintf(request, "GET %s HTTP/1.1\r\n%s\r\n\r\n", request_uri, required_header);
+    printf("\n%s\n", request);
 
     SSL_write(ssl, request, strlen(request));
+    char header[100000];
+    getHeader(header);
+    simpleReceive();
+
+    experimentalHeartbeat();
 
     simpleReceive();
 

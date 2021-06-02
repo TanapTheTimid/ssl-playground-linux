@@ -1,4 +1,4 @@
-all: test discord
+all: test
 
 test: test.c csapp.c csapp.h
 	gcc -o test test.c csapp.h csapp.c -lpthread -lssl -lcrypto
@@ -14,3 +14,5 @@ discordformat: discord.c
 	
 clean:
 	rm -rf test *.out fork *.m4a *.mp3 discord
+
+PHONY:
