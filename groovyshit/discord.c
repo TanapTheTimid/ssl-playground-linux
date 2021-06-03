@@ -15,6 +15,10 @@
 
 SSL* ssl;
 
+useconds_t heartbeat_interval_micros;
+int heartbeating = 0;
+pthread_t heartbeat_tid;
+
 void init_openssl_2()
 {
     SSL_library_init();
@@ -56,7 +60,7 @@ int readFrameHeader(){
 
     len = SSL_read(ssl, frameHeader, 2);
 
-    printf("frame header 0: %x\n", frameHeader[0]);
+    printf("\nframe header 0: %x\n", frameHeader[0]);
 
     unsigned short plen_short = frameHeader[1] & 127;
 
@@ -77,31 +81,55 @@ int readFrameHeader(){
 
 }
 
+int experimentalHeartbeat(char *msg, int verbose);
+
+void *threaded_heartbeat(void *ptr){
+    while(1){
+        usleep(heartbeat_interval_micros);
+        experimentalHeartbeat("{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}", 0);
+        printf("\n------HEARTBEAT SENT------\n");
+    }
+}
+
 int simpleReceive()
 {
     int loopcnt = 0;
-
-    int max_len = 1000;
     int len;
     int total_read_bytes = 0;
-    char buf[100000];
 
     int content_len = readFrameHeader();
+    int readlen = content_len;
+    char buf[content_len];
 
     if(content_len < 0){
-        printf("ERROR: not websocket");
+        printf("ERROR: not websocket...");
         return -1;
     }
 
     do {
-        len = SSL_read(ssl, buf, max_len);
+        len = SSL_read(ssl, buf, readlen);
         total_read_bytes += len;
-
-        buf[len] = 0;
-        printf("%s", buf);
-        fflush(stdout);
+        readlen -= len;
     } while (len > 0 && total_read_bytes < content_len);
-    printf("\n");
+
+    buf[total_read_bytes] = 0;
+    printf("-------READ-------\n%s\n-------END READ-------\n\n", buf);
+
+    if(strstr(buf, "\"op\":10") && !heartbeating){
+        char *heartbeatp = strstr(buf, "\"heartbeat_interval");
+        heartbeatp += 21;
+        char *hbp_end = strchr(buf, ',');
+        *hbp_end = 0;
+
+        
+        heartbeat_interval_micros = atoi(heartbeatp) * 1000;
+
+        printf("heartbeat interval microseconds: %d\n", heartbeat_interval_micros);
+
+        heartbeating = 1;
+        pthread_create(&heartbeat_tid, NULL, threaded_heartbeat, NULL);
+    }
+    fflush(stdout);
 }
 
 int saylong(char *msg, short msglen, int verbose){
@@ -109,7 +137,7 @@ int saylong(char *msg, short msglen, int verbose){
 
     getrandom(&mask, sizeof(int), 0);
 
-    printf("\nMASK: %x\n", mask);
+    if(verbose) printf("\nMASK: %x\n", mask);
 
     unsigned char ws_frame[1000];
     unsigned char* wsf_ptr = ws_frame;
@@ -130,7 +158,7 @@ int saylong(char *msg, short msglen, int verbose){
 
     wsf_ptr[8 + msglen] = 0;
 
-    printf("\nBitmasking frame...\n");
+    if(verbose) printf("\nBitmasking frame...\n");
 
     unsigned char* mask_bytes = (char*)&mask;
 
@@ -146,7 +174,7 @@ int saylong(char *msg, short msglen, int verbose){
         }
     }
 
-    printf("\nSending data...\n");
+    if(verbose) printf("\nSending data...\n");
 
     SSL_write(ssl, ws_frame, 8 + msglen);
 }
@@ -156,7 +184,7 @@ int sayshort(char *msg, short msglen, int opcode, int verbose){
 
     getrandom(&mask, sizeof(int), 0);
 
-    printf("\nMASK: %x\n", mask);
+    if(verbose) printf("\nMASK: %x\n", mask);
 
     unsigned char ws_frame[1000];
     unsigned char* wsf_ptr = ws_frame;
@@ -174,7 +202,7 @@ int sayshort(char *msg, short msglen, int opcode, int verbose){
 
     wsf_ptr[6 + msglen] = 0;
 
-    printf("\nBitmasking frame...\n");
+    if(verbose) printf("\nBitmasking frame...\n");
 
     unsigned char* mask_bytes = (char*)&mask;
 
@@ -190,7 +218,7 @@ int sayshort(char *msg, short msglen, int opcode, int verbose){
         }
     }
 
-    printf("\nSending data...\n");
+    if(verbose) printf("\nSending data...\n");
 
     SSL_write(ssl, ws_frame, 6 + msglen);
 }
@@ -198,7 +226,7 @@ int sayshort(char *msg, short msglen, int opcode, int verbose){
 int experimentalHeartbeat(char *msg, int verbose)
 {
     short msglen = strlen(msg);
-    printf("msglen: %d", msglen);
+    if(verbose) printf("msglen: %d", msglen);
     if(msglen <= 125){
         sayshort(msg, msglen, 0x1, verbose);
     }else{
@@ -208,6 +236,12 @@ int experimentalHeartbeat(char *msg, int verbose)
 
 int closeWebsocket(){
     sayshort("hi", 2, 0x8, 0);
+}
+
+void *threaded_receive_websock(void *ptr){
+    pthread_detach(pthread_self());
+    while(1)
+        simpleReceive();
 }
 
 int main()
@@ -273,17 +307,18 @@ int main()
     sprintf(request, "GET %s HTTP/1.1\r\n%s\r\n\r\n", request_uri, required_header);
     printf("\n%s\n", request);
 
+    heartbeating = 0;
     SSL_write(ssl, request, strlen(request));
     
     char header[100000];
     getHeader(header);
-    simpleReceive();
+    //simpleReceive();
+
+    pthread_t tid1;
+    pthread_create(&tid1, NULL, threaded_receive_websock, NULL);
 
     experimentalHeartbeat("{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}", 0);
 
-    simpleReceive();
-
-    //experimentalHeartbeat("{\"op\": 2,\"d\": {\"token\": \"ODM1NTUxMjQyMjQ2ODE1NzU0.YIRFuw.-Pt7J79212IrdEXcTCYRvE9VKfc\",\"intents\": 513,\"properties\": {\"$os\": \"linux\",\"$browser\": \"discord_dot_c\",\"$device\": \"discord_dot_c\"}}}", 0);
     //simpleReceive();
 
     char inputbuf[100000];
@@ -292,17 +327,20 @@ int main()
 
         if(inputbuf[0] == '0') break;
 
-        experimentalHeartbeat(inputbuf, 0);
-
-        simpleReceive();
+        if(inputbuf[0] != '1') 
+            experimentalHeartbeat(inputbuf, 0);
     }
+
+    pthread_cancel(tid1);
+    pthread_cancel(heartbeat_tid);
 
     closeWebsocket();
 
     printf("closing websocket!\n\n");
-    simpleReceive();
 
     SSL_shutdown(ssl);
     SSL_clear(ssl);
     Close(clientfd);
+
+    exit(0);
 }
