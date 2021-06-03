@@ -19,6 +19,10 @@ useconds_t heartbeat_interval_micros;
 int heartbeating = 0;
 pthread_t heartbeat_tid;
 
+char *heartbeat_str_p;
+
+char *heartbeat_opcode;
+
 void init_openssl_2()
 {
     SSL_library_init();
@@ -86,7 +90,7 @@ int experimentalHeartbeat(char *msg, int verbose);
 void *threaded_heartbeat(void *ptr){
     while(1){
         usleep(heartbeat_interval_micros);
-        experimentalHeartbeat("{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}", 0);
+        experimentalHeartbeat(heartbeat_str_p, 0);
         printf("\n------HEARTBEAT SENT------\n");
     }
 }
@@ -112,10 +116,15 @@ int simpleReceive()
         readlen -= len;
     } while (len > 0 && total_read_bytes < content_len);
 
+    if(len == 0){
+        printf("connection closed!");
+        return 0;
+    }
+
     buf[total_read_bytes] = 0;
     printf("-------READ-------\n%s\n-------END READ-------\n\n", buf);
 
-    if(strstr(buf, "\"op\":10") && !heartbeating){
+    if(strstr(buf, heartbeat_opcode) && !heartbeating){
         char *heartbeatp = strstr(buf, "\"heartbeat_interval");
         heartbeatp += 21;
         char *hbp_end = strchr(buf, ',');
@@ -130,6 +139,8 @@ int simpleReceive()
         pthread_create(&heartbeat_tid, NULL, threaded_heartbeat, NULL);
     }
     fflush(stdout);
+
+    return 1;
 }
 
 int saylong(char *msg, short msglen, int verbose){
@@ -240,11 +251,12 @@ int closeWebsocket(){
 
 void *threaded_receive_websock(void *ptr){
     pthread_detach(pthread_self());
-    while(1)
-        simpleReceive();
+    int run = 1;
+    while(run)
+        run = simpleReceive();
 }
 
-int main()
+int main(int argc, char *argv[], char *envp[])
 {
     int clientfd, errval;
     struct addrinfo hints, *listp, *p;
@@ -261,6 +273,24 @@ int main()
                             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
                             "Sec-WebSocket-Version: 13";
     char* port = "443";
+
+    heartbeat_str_p = "{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}";
+    heartbeat_opcode = "\"op\":10";
+
+    if(argc == 5){
+        printf("\ncustom host!!\n\n");
+        hostname = argv[1];
+        request_uri = argv[2];
+        char required_header_tmp[1000];
+        sprintf(required_header_tmp, "Host: %s:443\r\n"
+                            "Upgrade: websocket\r\n"
+                            "Connection: Upgrade\r\n"
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                            "Sec-WebSocket-Version: 13", hostname);
+        required_header = required_header_tmp;
+        heartbeat_str_p = argv[3];
+        heartbeat_opcode = argv[4];
+    }
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_socktype = SOCK_STREAM;
@@ -317,8 +347,7 @@ int main()
     pthread_t tid1;
     pthread_create(&tid1, NULL, threaded_receive_websock, NULL);
 
-    experimentalHeartbeat("{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}", 0);
-
+    //experimentalHeartbeat(heartbeat_str_p, 0);
     //simpleReceive();
 
     char inputbuf[100000];

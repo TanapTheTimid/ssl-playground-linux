@@ -17,25 +17,9 @@
 
 SSL *ssl;
 
-
-/**
- * Initialise OpenSSL
- */
-void init_openssl() {
-
-    /* call the standard SSL init functions */
-    SSL_load_error_strings();
-    SSL_library_init();
-    ERR_load_BIO_strings();
-    OpenSSL_add_all_algorithms();
-
-    /* seed the random number system - only really nessecary for systems without '/dev/random' */
-    /* RAND_add(?,?,?); need to work out a cryptographically significant way of generating the seed */
-}
-
 void init_openssl_2(){
     SSL_library_init();
-    ////SSLeay_add_ssl_algorithms();
+    ////// ---  SSLeay_add_ssl_algorithms();
     SSL_load_error_strings();
 }
 
