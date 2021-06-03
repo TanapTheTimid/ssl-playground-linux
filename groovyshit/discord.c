@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/random.h>
 
 #include "csapp.h"
 
@@ -49,6 +50,33 @@ void getHeader(char* headerbuf)
     *hbp = 0;
 }
 
+int readFrameHeader(){
+    unsigned char frameHeader[16];
+    unsigned int len;
+
+    len = SSL_read(ssl, frameHeader, 2);
+
+    printf("frame header 0: %x\n", frameHeader[0]);
+
+    unsigned short plen_short = frameHeader[1] & 127;
+
+    if(plen_short < 126) {
+        return plen_short;
+    }
+    else if(plen_short == 126){
+        SSL_read(ssl, frameHeader + 2, 2);
+        ((unsigned char *)(&plen_short))[1] = frameHeader[2];
+        ((unsigned char *)(&plen_short))[0] = frameHeader[3];
+
+        printf("longer length = %d\n", plen_short);
+        return plen_short;
+    }
+    else {
+        return -1;
+    }
+
+}
+
 int simpleReceive()
 {
     int loopcnt = 0;
@@ -58,6 +86,13 @@ int simpleReceive()
     int total_read_bytes = 0;
     char buf[100000];
 
+    int content_len = readFrameHeader();
+
+    if(content_len < 0){
+        printf("ERROR: not websocket");
+        return -1;
+    }
+
     do {
         len = SSL_read(ssl, buf, max_len);
         total_read_bytes += len;
@@ -65,12 +100,16 @@ int simpleReceive()
         buf[len] = 0;
         printf("%s", buf);
         fflush(stdout);
-    } while (len > 0 && total_read_bytes < 120);
+    } while (len > 0 && total_read_bytes < content_len);
+    printf("\n");
 }
 
-int experimentalHeartbeat()
-{
-    int mask = 0xE35E26AB;
+int saylong(char *msg, short msglen, int verbose){
+    unsigned int mask = 0xE35E26AB;
+
+    getrandom(&mask, sizeof(int), 0);
+
+    printf("\nMASK: %x\n", mask);
 
     unsigned char ws_frame[1000];
     unsigned char* wsf_ptr = ws_frame;
@@ -79,32 +118,96 @@ int experimentalHeartbeat()
     ws_frame[0] = 0x81;
 
     //mask and payload
-    ws_frame[1] = 37 + 128;
+    ws_frame[1] = 126 + 128;
+
+    ws_frame[2] = ((char *)(&msglen))[1];
+    ws_frame[3] = ((char *)(&msglen))[0];
+
+    //set the mask
+    *((unsigned int*)(wsf_ptr + 4)) = mask;
+
+    strcpy(wsf_ptr + 8, msg);
+
+    wsf_ptr[8 + msglen] = 0;
+
+    printf("\nBitmasking frame...\n");
+
+    unsigned char* mask_bytes = (char*)&mask;
+
+    for (int i = 0; i < msglen; i++) {
+        wsf_ptr[8 + i] = wsf_ptr[8 + i] ^ mask_bytes[i % 4];
+    }
+
+    if(verbose){
+        for (int i = 0; i < 8 + msglen; i++) {
+            if (i % 4 == 0)
+                printf("\n");
+            printf(" %8x ", wsf_ptr[i]);
+        }
+    }
+
+    printf("\nSending data...\n");
+
+    SSL_write(ssl, ws_frame, 8 + msglen);
+}
+
+int sayshort(char *msg, short msglen, int opcode, int verbose){
+    unsigned int mask = 0xE35E26AB;
+
+    getrandom(&mask, sizeof(int), 0);
+
+    printf("\nMASK: %x\n", mask);
+
+    unsigned char ws_frame[1000];
+    unsigned char* wsf_ptr = ws_frame;
+
+    //flags and opcode
+    ws_frame[0] = 0x80 + opcode;
+
+    //mask and payload
+    ws_frame[1] = msglen + 128;
 
     //set the mask
     *((unsigned int*)(wsf_ptr + 2)) = mask;
 
-    strcpy(wsf_ptr + 6, "{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}");
+    strcpy(wsf_ptr + 6, msg);
 
-    wsf_ptr[6 + 37] = 0;
+    wsf_ptr[6 + msglen] = 0;
 
-    printf("\n\nBITMASKING FRAME\n");
+    printf("\nBitmasking frame...\n");
 
     unsigned char* mask_bytes = (char*)&mask;
 
-    for (int i = 0; i < 37; i++) {
+    for (int i = 0; i < msglen; i++) {
         wsf_ptr[6 + i] = wsf_ptr[6 + i] ^ mask_bytes[i % 4];
     }
 
-    for (int i = 0; i < 6 + 37; i++) {
-        if (i % 4 == 0)
-            printf("\n");
-        printf(" %8x ", wsf_ptr[i]);
+    if(verbose){
+        for (int i = 0; i < 6 + msglen; i++) {
+            if (i % 4 == 0)
+                printf("\n");
+            printf(" %8x ", wsf_ptr[i]);
+        }
     }
 
-    printf("\n\nREADY TO SEND\n");
+    printf("\nSending data...\n");
 
-    SSL_write(ssl, ws_frame, 6 + 37);
+    SSL_write(ssl, ws_frame, 6 + msglen);
+}
+
+int experimentalHeartbeat(char *msg, int verbose)
+{
+    short msglen = strlen(msg);
+    printf("msglen: %d", msglen);
+    if(msglen <= 125){
+        sayshort(msg, msglen, 0x1, verbose);
+    }else{
+        saylong(msg, msglen, verbose);
+    }
+}
+
+int closeWebsocket(){
+    sayshort("hi", 2, 0x8, 0);
 }
 
 int main()
@@ -171,12 +274,32 @@ int main()
     printf("\n%s\n", request);
 
     SSL_write(ssl, request, strlen(request));
+    
     char header[100000];
     getHeader(header);
     simpleReceive();
 
-    experimentalHeartbeat();
+    experimentalHeartbeat("{\"op\": 1,\"d\": {},\"s\": null,\"t\": null}", 0);
 
+    simpleReceive();
+
+    //experimentalHeartbeat("{\"op\": 2,\"d\": {\"token\": \"ODM1NTUxMjQyMjQ2ODE1NzU0.YIRFuw.-Pt7J79212IrdEXcTCYRvE9VKfc\",\"intents\": 513,\"properties\": {\"$os\": \"linux\",\"$browser\": \"discord_dot_c\",\"$device\": \"discord_dot_c\"}}}", 0);
+    //simpleReceive();
+
+    char inputbuf[100000];
+    while(1){
+        fgets(inputbuf, 100000, stdin);
+
+        if(inputbuf[0] == '0') break;
+
+        experimentalHeartbeat(inputbuf, 0);
+
+        simpleReceive();
+    }
+
+    closeWebsocket();
+
+    printf("closing websocket!\n\n");
     simpleReceive();
 
     SSL_shutdown(ssl);
