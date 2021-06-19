@@ -58,11 +58,13 @@ dkms.conf
 test
 fork
 discord
+udprtp
 
 # downloaded music files
 *.m4a
 *.mp3
 *.opus
+*.ogg
 
 # sensitive data
 *.secure

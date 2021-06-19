@@ -13,7 +13,7 @@
 #define MAX_YOUTUBE_AUDIO_URL 10000
 #define MAX_FILENAME_LEN 100
 
-#define FILE_EXT ".m4a"
+#define FILE_EXT ".ogg"
 
 SSL *ssl;
 
@@ -22,7 +22,7 @@ void init_openssl_2(){
     ////// ---  SSLeay_add_ssl_algorithms();
     SSL_load_error_strings();
 }
-
+void legalizeFilename(char *filename);
 void getHeader(char *headerbuf){
     char *hbp = headerbuf;
 
@@ -122,25 +122,23 @@ int RecvPacket(FILE *filep)
     }
 }
 
-void legalizeFilename(char *filename){
-    char *p = strchr(filename, '/');
-    while(p){
-        *p = ' ';
-        p = strchr(p, '/');
-    }
-}
-
 void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri, char *required_header, char *filename, char *envp[]){
+    int piperead, pipewrite;
+    
     if(video_id == NULL){
         printf("Error: Please provide a video ID...\n");
         exit(-1);
     }
 
+    if (access("audiostream.pipe.out", F_OK) != 0){
+        mkfifo("audiostream.pipe.out", 0644);
+    }
+
     pid_t pid;
 
-    if((pid =Fork()) == 0){
-        int fd = Open("audiostream.url.out", O_RDWR | O_CREAT | O_TRUNC, 0644);
-        Dup2(fd, STDOUT_FILENO);
+    if((pid = Fork()) == 0){
+        pipewrite = open("audiostream.pipe.out", O_WRONLY, 0644);
+        Dup2(pipewrite, STDOUT_FILENO);
 
         char *argv[4];
         argv[0] = "/usr/bin/python3";
@@ -150,16 +148,15 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
 
         Execve(argv[0], argv, envp);
     }
-    Waitpid(pid, NULL, 0);
-
-    int fd = Open("audiostream.url.out", O_RDWR | O_CREAT, 0644);
+    piperead = open("audiostream.pipe.out", O_RDONLY, 0644);
 
     char str[MAX_YOUTUBE_AUDIO_URL];
 
-    int len = read(fd, str, MAX_YOUTUBE_AUDIO_URL);
+    int len = read(piperead, str, MAX_YOUTUBE_AUDIO_URL);
     str[len] = 0;
     printf("%s\n", str);
-    Close(fd);
+    Close(piperead);
+    Waitpid(pid, NULL, 0);
 
     char *hostp = str + 8;
     char *hostp_end = strstr(hostp, ".com/") + 4;
@@ -189,7 +186,7 @@ void getRemoteInfoFromVideoId(char *video_id, char *hostname, char *request_uri,
 //#define HOSTNAME "r2---sn-n3cgv5qc5oq-jwwl.googlevideo.com"
 //#define REQUEST_URI "/videoplayback?expire=1622559759&ei=r_e1YJm5FLKHlQTY9ZqIAQ&ip=58.227.252.171&id=o-ALtkrdKwzddysav0Rzfo-ESbKjAoCycWUAX1sUxdeIzL&itag=140&source=youtube&requiressl=yes&mh=uQ&mm=31%2C29&mn=sn-n3cgv5qc5oq-jwwl%2Csn-n3cgv5qc5oq-bh2sy&ms=au%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=25&initcwndbps=1727500&vprv=1&mime=audio%2Fmp4&ns=UdFPmkQzsnY6tH8m6p2OyvEF&gir=yes&clen=4294541&dur=270.349&lmt=1509193663599179&mt=1622537805&fvip=2&keepalive=yes&fexp=24001373%2C24007246&c=WEB&n=i05CE_oLz_-Qr2KB&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Cinitcwndbps&lsig=AG3C_xAwRAIgXNJDvYD1b9rwsonQ-2QrKiFEJdE1V9YrOUqfv9IzjKcCIHQqFlhmrbqdHDdjdR6xkqhwuBaLDk5g5A2iHrneAK9h&sig=AOq0QJ8wRQIhAJBGC5YOaKqTLyU_uJtQajfQ176l753g4TjN7dPdGsRtAiBfRPKNiLH3UPLNM3n7Q2JsTQh41sM_2sWD-iVHKS5DMg=="
 
-int main(int argc, char *argv[], char *envp[]){
+int old(int argc, char *argv[], char *envp[]){
     int clientfd, errval;
     struct addrinfo hints, *listp, *p;
     char buf[MAXLINE];
@@ -283,5 +280,139 @@ int main(int argc, char *argv[], char *envp[]){
             SSL_clear(ssl);
             Close(clientfd);
         } while (errval == -2);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+void legalizeFilename(char *filename){
+    char *p = strchr(filename, '/');
+    while(p){
+        *p = ' ';
+        p = strchr(p, '/');
+    }
+}
+
+void getUrlFromVidId(char *video_id, char *url, char *filename, char *envp[]){
+    int pipeids[2];
+    
+    if(video_id == NULL){
+        printf("Error: Please provide a video ID...\n");
+        exit(-1);
+    }
+
+    pipe(pipeids);
+
+    pid_t pid;
+    if((pid = Fork()) == 0){
+        Close(pipeids[0]);
+        Dup2(pipeids[1], STDOUT_FILENO);
+
+        char *argv[4];
+        argv[0] = "/usr/bin/python3";
+        argv[1] = "py_scripts/get_url_from_video_id.py";
+        argv[2] = video_id;
+        argv[3] = 0;
+
+        Execve(argv[0], argv, envp);
+    }
+    Close(pipeids[1]);
+    char str[MAX_YOUTUBE_AUDIO_URL];
+    int len = read(pipeids[0], str, MAX_YOUTUBE_AUDIO_URL);
+    str[len] = 0;
+    printf("%s\n", str);
+    Close(pipeids[0]);
+    Waitpid(pid, NULL, 0);
+
+    char *urlendp = strstr(str, "\n");
+    *urlendp = 0;
+    strcpy(url, str);
+
+    char filename_no_ext[MAX_FILENAME_LEN - 10];
+    char *namep_end = strstr(urlendp + 1, "\n");
+    *namep_end = 0;
+    strncpy(filename_no_ext, urlendp + 1, MAX_FILENAME_LEN - 10 - 1);
+    filename_no_ext[MAX_FILENAME_LEN - 10 - 1] = 0;
+
+    sprintf(filename, "%s"FILE_EXT, filename_no_ext);
+    legalizeFilename(filename);
+
+    printf("%s\n\n%s\n\n", url, filename);
+    fflush(stdout);
+}
+
+
+
+#define MAX_URL_LEN 20000
+#define MAX_FN_LEN 100
+
+int main(int argc, char *argv[], char *envp[]){
+    char url[MAX_URL_LEN], filename[MAX_FN_LEN];
+    int pid;
+
+    if (access("audiostream.pipe.out", F_OK) != 0){
+        mkfifo("audiostream.pipe.out", 0644);
+    }
+
+    for(int i = 1; i < argc; i++){
+
+        getUrlFromVidId(argv[i], url, filename, envp);
+
+        if((pid = Fork()) == 0){
+            char *new_argv[30] = {
+                  "ffmpeg"
+                , "-ss"
+                , "00:01:00.00"
+                , "-i"
+                , "..url.."
+                , "-c:a"
+                , "libopus"
+                , "-b:a"
+                , "64k"
+                , "-vbr"
+                , "off"
+                , "-compression_level"
+                , "4"
+                , "-frame_duration"
+                , "20"
+                , "-application"
+                , "audio"
+                , "-f"
+                , "ogg"
+                , "-y"
+                , "audiostream.pipe.out"
+                , 0};
+
+            printf("TEST: %s\n", url);
+            fflush(stdout);
+            new_argv[4] = url;
+            //new_argv[19] = pipewritearg;
+
+            if(execvp(new_argv[0], new_argv) < 0){
+                printf("UNIX EXECVE ERROR\n");
+                exit(1);
+            }
+        }
+
+        sleep(3);
+        int pipereadfd = open("audiostream.pipe.out", O_RDONLY, 0644);
+        int fd = open("lmaolmaolmaolmao.ogg", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        char buf[1000];
+        int len;
+        while((len = read(pipereadfd, buf, 999)) > 0){
+            write(fd, buf, len);
+        }
+        
+        fflush(stdout);
+
+        Waitpid(pid, NULL, 0);
     }
 }

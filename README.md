@@ -2,7 +2,7 @@
 
 Requirements:
 
-sudo apt-get install build-essential openssl libssl-dev libssl1.1 libcrypto python3 ffmpeg
+sudo apt-get install build-essential openssl libssl-dev libssl1.1 libcrypto python3 ffmpeg libsodium-dev libopus0 libopus-dev libogg-dev
 
 also run:
 python3 -m pip install youtube-dl pafy
@@ -18,7 +18,41 @@ ffmpeg -i input.mp3 -c:a libopus -b:a 32k -vbr on -compression_level 10 -frame_d
 
 ffmpeg -i input.m4a -c:a libopus -b:a 64k -vbr on -compression_level 10 -frame_duration 60 -application audio output.opus
 
+ffmpeg -i input.m4a -c:a libopus -b:a 64k -vbr off -compression_level 10 -frame_duration 60 -application audio output.opus
+
+
+
+ffmpeg -i input.m4a -c:a libopus -b:a 64k -vbr off -compression_level 4 -frame_duration 20 -application audio testingfile.ogg
+
 
 ./discord 'singapore756.discord.media' '/?v=4' '{"op": 3,"d": 1501184119560}' '"op":8'
 
 ./discord 'gateway.discord.gg' '/?v=9&encoding=json' '{"op": 1,"d": {},"s": null,"t": null}' '"op":10'
+
+https://stackoverflow.com/questions/43656892/stream-opus-audio-rtp-to-android-device
+
+https://stackoverflow.com/questions/59562598/ffmpeg-command-to-gstreamer-pipeline-for-srtp-stream
+
+
+ffmpeg -ss 00:01:00.00 -i -c:a libopus -b:a 64k -vbr off -compression_level 4 -frame_duration 20 -application audio testingfile.ogg
+
+char *new_argv[30] = {
+                  "ffmpeg"
+                , "-ss"
+                , "00:01:00.00"
+                , "-i"
+                , "..url.."
+                , "-c:a"
+                , "libopus"
+                , "-b:a"
+                , "64k"
+                , "-vbr"
+                , "off"
+                , "-compression_level"
+                , "4"
+                , "-frame_duration"
+                , "20"
+                , "-application"
+                , "audio"
+                , "testingfile.ogg"
+                , 0};
