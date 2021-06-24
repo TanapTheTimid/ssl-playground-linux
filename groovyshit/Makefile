@@ -10,7 +10,7 @@ discord: discord.c csapp.c csapp.h
 	gcc -o discord discord.c csapp.c csapp.h -lpthread -lssl -lcrypto
 
 udprtp: udprtp.c csapp.c csapp.h
-	gcc -o udprtp udprtp.c csapp.c csapp.h -lpthread -lssl -lcrypto -lsodium -lopus -logg
+	gcc -O2 -o udprtp udprtp.c csapp.c csapp.h -lpthread -lssl -lcrypto -lsodium -lopus -logg
 
 discordrun : discord PHONY
 	./discord

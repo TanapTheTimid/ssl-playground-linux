@@ -2,7 +2,7 @@
 
 Requirements:
 
-sudo apt-get install build-essential openssl libssl-dev libssl1.1 libcrypto python3 ffmpeg libsodium-dev libopus0 libopus-dev libogg-dev
+sudo apt-get install build-essential openssl libssl-dev libssl1.1 libcrypto python3 ffmpeg libsodium-dev libopus0 libopus-dev libogg-dev opus-tools
 
 also run:
 python3 -m pip install youtube-dl pafy
@@ -55,4 +55,44 @@ char *new_argv[30] = {
                 , "-application"
                 , "audio"
                 , "testingfile.ogg"
+                , 0};
+
+
+
+char *new_argv[50] = {
+                  "ffmpeg"
+                , "-ss"                 , "00:00:00.00"
+                //////, "-f" , "m4a" , "-dn" , "-ignore_unknown" , "-copyts" , "-err_detect" , "ignore_err"
+                , "-i"                  , "..url.."
+                , "-c:a"                , "libopus"
+                , "-b:a"                , "64k"
+                , "-vbr"                , "off"
+                , "-compression_level"  , "4"
+                , "-frame_duration"     , "20"
+                , "-application"        , "audio"
+                , "-f"                  , "ogg"
+                , "-y"
+                , "audiostream.file.out"
+                , 0};
+
+
+
+
+char *new_argv[50] = {
+                  "ffmpeg"
+                , "-ss"                 , "00:00:00.00"
+                , "-i"                  , "..url.."
+                , "-c:a"                , "libopus"
+                , "-b:a"                , "64k"
+                , "-vbr"                , "off"
+
+                , "-packet_loss"        , "20"
+                , "-fec"                , "on"
+
+                , "-compression_level"  , "4"
+                , "-frame_duration"     , "20"
+                , "-application"        , "audio"
+                , "-f"                  , "ogg"
+                , "-y"
+                , "audiostream.file.out"
                 , 0};

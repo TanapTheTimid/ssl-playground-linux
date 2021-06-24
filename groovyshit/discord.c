@@ -53,29 +53,42 @@ void getHeader(char *headerbuf) {
 
   } while (len > 0 && !(four[0] == '\r' && four[1] == '\n' && four[2] == '\r' &&
                         four[3] == '\n'));
-
-  *hbp = 0;
 }
 
 int readFrameHeader() {
   unsigned char frameHeader[16];
   unsigned int len;
+  unsigned long plen;
+  int fin;
 
   len = SSL_read(ssl, frameHeader, 2);
 
-  printf("\nframe header 0: %x\n", frameHeader[0]);
+  fin = frameHeader[0] >> 7;
+  printf("fin:%d\n", fin);
+  plen = frameHeader[1] & 127;
 
-  unsigned short plen_short = frameHeader[1] & 127;
-
-  if (plen_short < 126) {
-    return plen_short;
-  } else if (plen_short == 126) {
+  if (plen < 126) {
+    return plen;
+  } else if (plen == 126) {
     SSL_read(ssl, frameHeader + 2, 2);
-    ((unsigned char *)(&plen_short))[1] = frameHeader[2];
-    ((unsigned char *)(&plen_short))[0] = frameHeader[3];
 
-    printf("longer length = %d\n", plen_short);
-    return plen_short;
+    ((unsigned char *)(&plen))[1] = frameHeader[2];
+    ((unsigned char *)(&plen))[0] = frameHeader[3];
+
+    return plen;
+  } else if (plen == 127){
+    SSL_read(ssl, frameHeader + 2, 8);
+
+    ((unsigned char *)(&plen))[7] = frameHeader[2];
+    ((unsigned char *)(&plen))[6] = frameHeader[3];
+    ((unsigned char *)(&plen))[5] = frameHeader[4];
+    ((unsigned char *)(&plen))[4] = frameHeader[5];
+    ((unsigned char *)(&plen))[3] = frameHeader[6];
+    ((unsigned char *)(&plen))[2] = frameHeader[7];
+    ((unsigned char *)(&plen))[1] = frameHeader[8];
+    ((unsigned char *)(&plen))[0] = frameHeader[9];
+
+    return plen;
   } else {
     return -1;
   }
@@ -234,15 +247,62 @@ int sayshort(char *msg, short msglen, int opcode, int verbose) {
   SSL_write(ssl, ws_frame, 6 + msglen);
 }
 
+
+
+
+int send_websocket(SSL *ssl, char *msg, unsigned short msglen, int opcode) {
+  //random mask for Websocket Masking
+  unsigned int mask;
+  getrandom(&mask, sizeof(int), 0);
+
+  //whether payload size is 7 bits (0 extension)
+  //or 16 bits (2 byte extension)
+  unsigned int extension = 0;
+
+  if (msglen <= 125) {
+    extension = 0; //0 bytes extension of length field
+  }else if(msglen < 65535){
+    extension = 2; //2 bytes extension of length field
+  }else{
+    return -1;
+  }
+
+  unsigned char *ws_frame = malloc(msglen + 14);
+
+  // flags and opcode
+  ws_frame[0] = 0x80 + opcode;
+
+  // mask and payload size depending on size group
+  if(!extension){
+    ws_frame[1] = msglen + 128;
+  }else{
+    ws_frame[1] = 126 + 128;
+    ws_frame[2] = ((char *)(&msglen))[1];
+    ws_frame[3] = ((char *)(&msglen))[0];
+  }
+
+  // set the mask
+  *((unsigned int *)(ws_frame + 2 + extension)) = mask;
+
+  unsigned char *mask_bytes = (char *)&mask;
+  for (int i = 0; i < msglen; i++) {
+    ws_frame[6 + extension + i] = msg[i] ^ mask_bytes[i % 4];
+  }
+
+  SSL_write(ssl, ws_frame, 6 + extension + msglen);
+
+  free(ws_frame);
+}
+
+
+
+
 int experimentalHeartbeat(char *msg, int verbose) {
   short msglen = strlen(msg);
   if (verbose)
     printf("msglen: %d", msglen);
-  if (msglen <= 125) {
-    sayshort(msg, msglen, 0x1, verbose);
-  } else {
-    saylong(msg, msglen, verbose);
-  }
+  
+  send_websocket(ssl, msg, msglen, 1);
 }
 
 int closeWebsocket() { sayshort("hi", 2, 0x8, 0); }

@@ -32,10 +32,11 @@
 #include <opus/opus.h>
 #include <ogg/ogg.h>
 
+#define HAVE_CLOCK_NANOSLEEP
+#define HAVE_NANOSLEEP
+#define HAVE_CLOCK_GETTIME
 
-
-#define SAMPLING_RATE 48000
-
+int ffmpeg_finished = 0;
 
 #define ETH_HEADER_LEN 14
 typedef struct {
@@ -167,8 +168,23 @@ int update_rtp_header(rtp_header *rtp)
 }
 
 
-void wait_for_time_slot(long delta)
+void wait_for_time_slot(int delta)
 {
+# if defined HAVE_MACH_ABSOLUTE_TIME
+  /* Apple */
+  static mach_timebase_info_data_t tbinfo;
+  static uint64_t target;
+
+  if (tbinfo.numer == 0) {
+    mach_timebase_info(&tbinfo);
+    target = mach_absolute_time();
+  } else {
+    target += tbinfo.numer == tbinfo.denom
+      ? (uint64_t)delta : (uint64_t)delta * tbinfo.denom / tbinfo.numer;
+    mach_wait_until(target);
+  }
+# elif defined HAVE_CLOCK_GETTIME && defined CLOCK_REALTIME && \
+       defined HAVE_NANOSLEEP
   /* try to use POSIX monotonic clock */
   static int initialized = 0;
   static clockid_t clock_id;
@@ -196,8 +212,65 @@ void wait_for_time_slot(long delta)
       ++target.tv_sec;
       target.tv_nsec -= 1000000000;
     }
+#  if defined HAVE_CLOCK_NANOSLEEP && \
+      defined _POSIX_CLOCK_SELECTION && _POSIX_CLOCK_SELECTION > 0
     clock_nanosleep(clock_id, TIMER_ABSTIME, &target, NULL);
+#  else
+    {
+      /* convert to relative time */
+      struct timespec rel;
+      if (clock_gettime(clock_id, &rel) == 0) {
+        rel.tv_sec = target.tv_sec - rel.tv_sec;
+        rel.tv_nsec = target.tv_nsec - rel.tv_nsec;
+        if (rel.tv_nsec < 0) {
+          rel.tv_nsec += 1000000000;
+          --rel.tv_sec;
+        }
+        if (rel.tv_sec >= 0 && (rel.tv_sec > 0 || rel.tv_nsec > 0)) {
+          nanosleep(&rel, NULL);
+        }
+      }
+    }
+#  endif
   }
+# else
+  /* fall back to the old non-monotonic gettimeofday() */
+  static int initialized = 0;
+  static struct timeval target;
+  struct timeval now;
+  int nap;
+
+  if (!initialized) {
+    gettimeofday(&target, NULL);
+    initialized = 1;
+  } else {
+    delta /= 1000;
+    target.tv_usec += delta;
+    if (target.tv_usec >= 1000000) {
+      ++target.tv_sec;
+      target.tv_usec -= 1000000;
+    }
+
+    gettimeofday(&now, NULL);
+    nap = target.tv_usec - now.tv_usec;
+    if (now.tv_sec != target.tv_sec) {
+      if (now.tv_sec > target.tv_sec) nap = 0;
+      else if (target.tv_sec - now.tv_sec == 1) nap += 1000000;
+      else nap = 1000000;
+    }
+    if (nap > delta) nap = delta;
+    if (nap > 0) {
+#  if defined HAVE_USLEEP
+      usleep(nap);
+#  else
+      struct timeval timeout;
+      timeout.tv_sec = 0;
+      timeout.tv_usec = nap;
+      select(0, NULL, NULL, NULL, &timeout);
+#  endif
+    }
+  }
+# endif
 }
 
 
@@ -246,22 +319,31 @@ int dis_ssrc;
 
 int delay_count = 0;
 
-
 int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
     socklen_t addrlen, int payload_type)
 {
+  /* try to use POSIX monotonic clock */
+  static int initialized = 0;
+  static clockid_t clock_id;
+  static struct timespec start, start2, end;
+  sysconf(_SC_MONOTONIC_CLOCK);
+  clock_id = CLOCK_MONOTONIC;
+  clock_gettime(clock_id, &start);
+  int last_frame_corrected = 0;
+
+
   rtp_header rtp;
   int fd;
   int optval = 0;
   int ret;
-  FILE *in;
+  int in_fd;
   ogg_sync_state oy;
   ogg_stream_state os;
   ogg_page og;
   ogg_packet op;
-  int headers = 0;
-  char *in_data;
-  const long in_size = 8192;
+  int headers = 0, read_test_len;
+  char *in_data, dummy_char;
+  const long in_size = 8192; //= 8192;
   size_t in_read;
 
   fd = socket(addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
@@ -283,17 +365,22 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
   rtp.payload_size = 0;
 
   fprintf(stderr, "Sending %s...\n", filename);
-  in = fopen(filename, "rb");
+  in_fd = open(filename, O_RDONLY, 0644);
   //check !in Couldn't open input file
   
   ret = ogg_sync_init(&oy);
   //check ret < 0 Couldn't initialize Ogg sync state
 
-  while (!feof(in)) {
+  while ((read_test_len = read(in_fd, &dummy_char, 1)) || !ffmpeg_finished) {
+    if(read_test_len == 1){
+      lseek(in_fd, -1, SEEK_CUR);
+    }
+
+    //printf("eof: %d\n", !read_test_len);
     in_data = ogg_sync_buffer(&oy, in_size);
     //check !in_data ogg_sync_buffer failed
 
-    in_read = fread(in_data, 1, in_size, in);
+    in_read = read(in_fd, in_data, in_size);
     ret = ogg_sync_wrote(&oy, in_read);
     //check ret < 0 ogg_sync_wrote failed
 
@@ -307,7 +394,7 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
         } else if (!ogg_page_bos(&og)) {
           /* We're past the header and haven't found an Opus stream.
            * Time to give up. */
-          fclose(in);
+          close(in_fd);
           return 1;
         } else {
           /* try again */
@@ -331,29 +418,62 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
           continue;
         }
         /* get packet duration */
-        samples = opus_packet_get_nb_samples(op.packet, op.bytes, SAMPLING_RATE);
+        samples = opus_packet_get_nb_samples(op.packet, op.bytes, 48000);
         if (samples <= 0) {
           fprintf(stderr, "skipping invalid packet\n");
           continue;
         }
-
         /* update the rtp header and send */
         rtp.seq++;
         rtp.time += samples;
         rtp.payload_size = op.bytes;
-        fprintf(stderr, "rtp %d %d %d %3d ms %5d bytes\n",
-            rtp.type, rtp.seq, rtp.time, samples/48, rtp.payload_size);
+        //fprintf(stderr, "rtp %d %d %d %3d ms %5d bytes\n",
+        //    rtp.type, rtp.seq, rtp.time, samples/48, rtp.payload_size);
         send_rtp_packet(fd, addr, addrlen, &rtp, op.packet);
-        
 
-        //self modified DANGEROUS
-        /* convert number of 48 kHz samples to nanoseconds without overflow */
-        if(delay_count > -1){
-          wait_for_time_slot(20000000); ///wait_for_time_slot(samples*62500/3);
+
+        clock_gettime(clock_id, &end);
+        long secediff = (long int)end.tv_sec-start.tv_sec;
+        long usecdiff = (long)((end.tv_nsec - start.tv_nsec)/1000) + secediff * 1000000;
+        //fprintf(stderr, "Time elapsed: %ld, should be:%ld us", usecdiff, samples*125/6);
+        
+        if(usecdiff > 25000 || usecdiff < 15000){
+          fprintf(stderr, "Abnormal Frame: ........................................................... %ld\n", usecdiff);
+        }/*else{
+          fprintf(stderr, "\n");
+        }*/
+        start = end;
+
+
+        long target = samples*62500/3;
+
+        long lastnsdiff = usecdiff * 1000;
+        long deviation = lastnsdiff - target;
+        if(!last_frame_corrected && ((deviation > 5000000 && deviation < 15000000) || (deviation < -5000000 && deviation > -15000000))){
+          target = target - deviation;
+          last_frame_corrected = 1;
         }else{
-          delay_count++;
+          last_frame_corrected = 0;
         }
 
+        long secdiff2 = end.tv_sec - start2.tv_sec;
+        long nsecdiff = end.tv_nsec - start2.tv_nsec + (secdiff2 * 1000000000);
+
+        while (nsecdiff < target){
+
+          //todo: find some way to "sleep"
+
+          clock_gettime(clock_id, &end);
+          secdiff2 = end.tv_sec - start2.tv_sec;
+          nsecdiff = end.tv_nsec - start2.tv_nsec + (secdiff2 * 1000000000);
+        }
+
+        //fprintf(stderr, "raw time: %ld\n", nsecdiff);
+
+        /* convert number of 48 kHz samples to nanoseconds without overflow */
+        //wait_for_time_slot(samples*62500/3);
+
+        clock_gettime(clock_id, &start2);
       }
     }
   }
@@ -361,7 +481,7 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
   if (headers > 0)
     ogg_stream_clear(&os);
   ogg_sync_clear(&oy);
-  fclose(in);
+  close(in_fd);
   return 0;
 }
 
@@ -545,39 +665,72 @@ void getUrlFromVidId(char *video_id, char *url, char *filename, char *envp[]){
     fflush(stdout);
 }
 
+void sigchld_handler(int sig) {
+  int save_errno = errno;
+  int status;
+
+  ffmpeg_finished = 1;
+
+  while ((waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0);
+
+  errno = save_errno;
+}
+
 int main(int argc, char *argv[], char *envp[]){
+    ffmpeg_finished = 0;
     char url[MAX_URL_LEN], filename[MAX_FN_LEN];
     int pid;
 
+/*
     if (access("audiostream.pipe.out", F_OK) != 0){
         mkfifo("audiostream.pipe.out", 0644);
     }
+*/
 
-    for(int i = 1; i < argc; i++){
+    int fd = open("audiostream.file.out", O_CREAT | O_RDWR | O_TRUNC, 0644);
+    close(fd);
 
-        getUrlFromVidId(argv[i], url, filename, envp);
+    for(int i = 1; i < argc-4; i++){
+
+        getUrlFromVidId(argv[i + 4], url, filename, envp);
+
+        Signal(SIGCHLD, sigchld_handler);
 
         if((pid = Fork()) == 0){
-            char *new_argv[30] = {
+            char *new_argv[50] = {
                   "ffmpeg"
-                , "-ss"
-                , "00:00:00.00"
-                , "-i"
-                , "..url.."
-                , "-c:a"
-                , "libopus"
-                , "-b:a"
-                , "64k"
-                , "-vbr"
-                , "off"
-                , "-compression_level"
-                , "4"
-                , "-frame_duration"
-                , "20"
-                , "-application"
-                , "audio"
-                , "-f"
-                , "ogg"
+                , "-ss"                 , "00:00:00.00"
+                , "-i"                  , "..url.."
+                , "-c:a"                , "libopus"
+                , "-b:a"                , "64k"
+                , "-vbr"                , "off"
+                , "-compression_level"  , "10"
+                , "-frame_duration"     , "20"
+                , "-application"        , "audio"
+                , "-f"                  , "opus"
+                , "-y"
+                , "audiostream.file.out"
+                , 0};
+
+            printf("TEST: %s\n", url);
+            fflush(stdout);
+            new_argv[4] = url;
+            //new_argv[19] = pipewritearg;
+
+            if(execvp(new_argv[0], new_argv) < 0){
+                printf("UNIX EXECVE ERROR\n");
+                exit(1);
+            }
+        }
+
+        
+/*
+        if((pid = Fork()) == 0){
+            char *new_argv[50] = {
+                  "ffmpeg"
+                , "-ss"                 , "00:00:00.00"
+                , "-i"                  , "..url.."
+                , "-f"                  , "wav"
                 , "-y"
                 , "audiostream.pipe.out"
                 , 0};
@@ -592,12 +745,47 @@ int main(int argc, char *argv[], char *envp[]){
                 exit(1);
             }
         }
+
+        if((pid = Fork()) == 0){
+            char *new_argv[50] = {
+                  "opusenc"
+                , "--bitrate"             , "64"
+                , "--hard-cbr"
+                , "--comp"                , "10"
+                , "--framesize"           , "20"
+                , "--expect-loss"         , "0"
+                , "audiostream.pipe.out"
+                , "audiostream.file.out"
+                , 0};
+
+            printf("TEST: %s\n", url);
+            fflush(stdout);
+            //new_argv[19] = pipewritearg;
+
+            if(execvp(new_argv[0], new_argv) < 0){
+                printf("UNIX EXECVE ERROR\n");
+                exit(1);
+            }
+        }*/
         
         delay_count = 0;
-        char diskey[32] = {176,37,62,12,141,167,133,60,1,70,137,64,5,0,239,175,128,95,53,254,232,21,39,224,25,196,153,154,117,65,148,108};
+        char diskey[32];
+        char *keystr = argv[4];
+        char *end;
+
+        int i = 0;
+        while((end = strchr(keystr, ','))){
+          *end = 0;
+          diskey[i] = atoi(keystr);
+          keystr = end + 1;
+          i++;
+        }
+        diskey[31] = atoi(keystr);
+
+
         key = diskey;
-        dis_ssrc = 66945;
-        rtp_send_file("audiostream.pipe.out", "213.179.202.39", "50007", 120);
+        dis_ssrc = atoi(argv[3]);
+        rtp_send_file("audiostream.file.out", argv[1], argv[2], 120);
 
         Waitpid(pid, NULL, 0);
     }
