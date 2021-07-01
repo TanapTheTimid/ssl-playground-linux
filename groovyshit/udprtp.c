@@ -199,11 +199,13 @@ void wait_for_time_slot(int delta)
 #   endif
         clock_gettime(CLOCK_MONOTONIC, &target) == 0) {
       clock_id = CLOCK_MONOTONIC;
+      fprintf(stderr, "USING POSIX MONOTONIC CLOCK!\n");
       initialized = 1;
     } else
 #  endif
     if (clock_gettime(CLOCK_REALTIME, &target) == 0) {
       clock_id = CLOCK_REALTIME;
+      fprintf(stderr, "USING POSIX REALTIME CLOCK!\n");
       initialized = 1;
     }
   } else {
@@ -456,9 +458,9 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
           last_frame_corrected = 0;
         }
 
-        long secdiff2 = end.tv_sec - start2.tv_sec;
-        long nsecdiff = end.tv_nsec - start2.tv_nsec + (secdiff2 * 1000000000);
-
+        //long secdiff2 = end.tv_sec - start2.tv_sec;
+        //long nsecdiff = end.tv_nsec - start2.tv_nsec + (secdiff2 * 1000000000);
+        /*
         while (nsecdiff < target){
 
           //todo: find some way to "sleep"
@@ -467,11 +469,11 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
           secdiff2 = end.tv_sec - start2.tv_sec;
           nsecdiff = end.tv_nsec - start2.tv_nsec + (secdiff2 * 1000000000);
         }
-
+        */
         //fprintf(stderr, "raw time: %ld\n", nsecdiff);
 
         /* convert number of 48 kHz samples to nanoseconds without overflow */
-        //wait_for_time_slot(samples*62500/3);
+        wait_for_time_slot(samples*62500/3);
 
         clock_gettime(clock_id, &start2);
       }
