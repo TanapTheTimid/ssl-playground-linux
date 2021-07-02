@@ -168,6 +168,15 @@ int update_rtp_header(rtp_header *rtp)
 }
 
 
+
+
+
+
+/*
+ * Wait for the next time slot, which begins delta nanoseconds after the
+ * start of the previous time slot, or in the case of the first call at
+ * the time of the call.  delta must be in the range 0..999999999.
+ */
 void wait_for_time_slot(int delta)
 {
 # if defined HAVE_MACH_ABSOLUTE_TIME
@@ -199,13 +208,11 @@ void wait_for_time_slot(int delta)
 #   endif
         clock_gettime(CLOCK_MONOTONIC, &target) == 0) {
       clock_id = CLOCK_MONOTONIC;
-      fprintf(stderr, "USING POSIX MONOTONIC CLOCK!\n");
       initialized = 1;
     } else
 #  endif
     if (clock_gettime(CLOCK_REALTIME, &target) == 0) {
       clock_id = CLOCK_REALTIME;
-      fprintf(stderr, "USING POSIX REALTIME CLOCK!\n");
       initialized = 1;
     }
   } else {
@@ -276,6 +283,12 @@ void wait_for_time_slot(int delta)
 }
 
 
+
+
+
+
+
+
 char *key;
 char packet[65535];
 
@@ -306,6 +319,17 @@ int send_rtp_packet(int fd, struct sockaddr *addr, socklen_t addrlen,
   ret = sendto(fd, packet, 
       rtp->header_size + rtp->payload_size + crypto_secretbox_MACBYTES, 
       0,addr, addrlen);
+
+  //DANGEROUS////////////
+
+  char buffer[100000];
+  struct sockaddr_storage src_addr;
+  socklen_t src_addr_len=sizeof(src_addr);
+  int cnt = 0;
+  //cnt = recvfrom(fd,buffer,sizeof(buffer),0,(struct sockaddr*)&src_addr,&src_addr_len);
+
+  //fprintf(stderr, "RECEIVED:::::::%d\n", cnt);
+  ///////////////////////
 
   if (ret < 0) {
     fprintf(stderr, "error sending: %s\n", strerror(errno));
@@ -348,10 +372,20 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
   const long in_size = 8192; //= 8192;
   size_t in_read;
 
+  //danger
+  struct timeval read_timeout;
+  read_timeout.tv_sec = 0;
+  read_timeout.tv_usec = 10;
+  ////////
+
   fd = socket(addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
   //check for fd < 0 Couldn't create socket
   ret = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
   //check ret < 0 Couldn't set socket options
+
+  //DANGER
+  ret = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof(read_timeout));
+  ////////
 
   rtp.version = 2;
   rtp.type = payload_type;
@@ -688,6 +722,8 @@ int main(int argc, char *argv[], char *envp[]){
         mkfifo("audiostream.pipe.out", 0644);
     }
 */
+    
+    fprintf(stderr, "Setting up cache file...\n");
 
     int fd = open("audiostream.file.out", O_CREAT | O_RDWR | O_TRUNC, 0644);
     close(fd);
