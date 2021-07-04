@@ -701,6 +701,45 @@ void getUrlFromVidId(char *video_id, char *url, char *filename, char *envp[]){
     fflush(stdout);
 }
 
+void getUrlFromVidIdVERSION2(char *video_id, char *url){
+    int pipeids[2];
+    
+    if(video_id == NULL){
+        printf("Error: Please provide a video ID...\n");
+        exit(-1);
+    }
+
+    pipe(pipeids);
+
+    pid_t pid;
+    if((pid = Fork()) == 0){
+        Close(pipeids[0]);
+        Dup2(pipeids[1], STDOUT_FILENO);
+
+        char *argv[10];
+        argv[0] = "youtube-dl";
+        argv[1] = "-g";
+        argv[2] = "-f";
+        argv[3] = "bestaudio[ext=m4a]";
+        argv[4] = video_id;
+        argv[5] = 0;
+
+        execvp(argv[0], argv);
+    }
+    Close(pipeids[1]);
+    char str[MAX_URL_LEN];
+    int len = read(pipeids[0], str, MAX_URL_LEN);
+    str[len] = 0;
+    Close(pipeids[0]);
+    Waitpid(pid, NULL, 0);
+
+    char *urlendp = strstr(str, "\n");
+    *urlendp = 0;
+    strcpy(url, str);
+
+    printf("AUDIO URL: %s\n\n", url);
+}
+
 void sigchld_handler(int sig) {
   int save_errno = errno;
   int status;
@@ -730,7 +769,8 @@ int main(int argc, char *argv[], char *envp[]){
 
     for(int i = 1; i < argc-4; i++){
 
-        getUrlFromVidId(argv[i + 4], url, filename, envp);
+        getUrlFromVidIdVERSION2(argv[i + 4], url);
+        //getUrlFromVidId(argv[i + 4], url, filename, envp);
 
         Signal(SIGCHLD, sigchld_handler);
 
