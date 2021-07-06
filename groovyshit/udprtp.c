@@ -168,7 +168,28 @@ int update_rtp_header(rtp_header *rtp)
 }
 
 
+typedef struct {
+# if defined HAVE_MACH_ABSOLUTE_TIME
+  /* Apple */
+  mach_timebase_info_data_t tbinfo;
+  uint64_t target;
+# elif defined HAVE_CLOCK_GETTIME && defined CLOCK_REALTIME && \
+       defined HAVE_NANOSLEEP
+  /* try to use POSIX monotonic clock */
+  int initialized;
+  clockid_t clock_id;
+  struct timespec target;
+# else
+  /* fall back to the old non-monotonic gettimeofday() */
+  int initialized;
+  struct timeval target;
+# endif
+} time_slot_wait_t;
 
+
+void init_time_slot_wait(time_slot_wait_t *pt){
+  memset(pt, 0, sizeof(time_slot_wait_t));
+}
 
 
 
@@ -177,60 +198,55 @@ int update_rtp_header(rtp_header *rtp)
  * start of the previous time slot, or in the case of the first call at
  * the time of the call.  delta must be in the range 0..999999999.
  */
-void wait_for_time_slot(int delta)
+void wait_for_time_slot(int delta, time_slot_wait_t *state)
 {
 # if defined HAVE_MACH_ABSOLUTE_TIME
   /* Apple */
-  static mach_timebase_info_data_t tbinfo;
-  static uint64_t target;
 
-  if (tbinfo.numer == 0) {
-    mach_timebase_info(&tbinfo);
-    target = mach_absolute_time();
+  if (state->tbinfo.numer == 0) {
+    mach_timebase_info(&(state->tbinfo));
+    state->target = mach_absolute_time();
   } else {
-    target += tbinfo.numer == tbinfo.denom
-      ? (uint64_t)delta : (uint64_t)delta * tbinfo.denom / tbinfo.numer;
-    mach_wait_until(target);
+    state->target += state->tbinfo.numer == state->tbinfo.denom
+      ? (uint64_t)delta : (uint64_t)delta * state->tbinfo.denom / state->tbinfo.numer;
+    mach_wait_until(state->target);
   }
 # elif defined HAVE_CLOCK_GETTIME && defined CLOCK_REALTIME && \
        defined HAVE_NANOSLEEP
   /* try to use POSIX monotonic clock */
-  static int initialized = 0;
-  static clockid_t clock_id;
-  static struct timespec target;
 
-  if (!initialized) {
+  if (!state->initialized) {
 #  if defined CLOCK_MONOTONIC && \
       defined _POSIX_MONOTONIC_CLOCK && _POSIX_MONOTONIC_CLOCK >= 0
     if (
 #   if _POSIX_MONOTONIC_CLOCK == 0
         sysconf(_SC_MONOTONIC_CLOCK) > 0 &&
 #   endif
-        clock_gettime(CLOCK_MONOTONIC, &target) == 0) {
-      clock_id = CLOCK_MONOTONIC;
-      initialized = 1;
+        clock_gettime(CLOCK_MONOTONIC, &state->target) == 0) {
+      state->clock_id = CLOCK_MONOTONIC;
+      state->initialized = 1;
     } else
 #  endif
-    if (clock_gettime(CLOCK_REALTIME, &target) == 0) {
-      clock_id = CLOCK_REALTIME;
-      initialized = 1;
+    if (clock_gettime(CLOCK_REALTIME, &state->target) == 0) {
+      state->clock_id = CLOCK_REALTIME;
+      state->initialized = 1;
     }
   } else {
-    target.tv_nsec += delta;
-    if (target.tv_nsec >= 1000000000) {
-      ++target.tv_sec;
-      target.tv_nsec -= 1000000000;
+    state->target.tv_nsec += delta;
+    if (state->target.tv_nsec >= 1000000000) {
+      ++state->target.tv_sec;
+      state->target.tv_nsec -= 1000000000;
     }
 #  if defined HAVE_CLOCK_NANOSLEEP && \
       defined _POSIX_CLOCK_SELECTION && _POSIX_CLOCK_SELECTION > 0
-    clock_nanosleep(clock_id, TIMER_ABSTIME, &target, NULL);
+    clock_nanosleep(state->clock_id, TIMER_ABSTIME, &state->target, NULL);
 #  else
     {
       /* convert to relative time */
       struct timespec rel;
       if (clock_gettime(clock_id, &rel) == 0) {
-        rel.tv_sec = target.tv_sec - rel.tv_sec;
-        rel.tv_nsec = target.tv_nsec - rel.tv_nsec;
+        rel.tv_sec = state->target.tv_sec - rel.tv_sec;
+        rel.tv_nsec = state->target.tv_nsec - rel.tv_nsec;
         if (rel.tv_nsec < 0) {
           rel.tv_nsec += 1000000000;
           --rel.tv_sec;
@@ -244,27 +260,25 @@ void wait_for_time_slot(int delta)
   }
 # else
   /* fall back to the old non-monotonic gettimeofday() */
-  static int initialized = 0;
-  static struct timeval target;
   struct timeval now;
   int nap;
 
-  if (!initialized) {
-    gettimeofday(&target, NULL);
-    initialized = 1;
+  if (!state->initialized) {
+    gettimeofday(&state->target, NULL);
+    state->initialized = 1;
   } else {
     delta /= 1000;
-    target.tv_usec += delta;
-    if (target.tv_usec >= 1000000) {
-      ++target.tv_sec;
-      target.tv_usec -= 1000000;
+    state->target.tv_usec += delta;
+    if (state->target.tv_usec >= 1000000) {
+      ++state->target.tv_sec;
+      state->target.tv_usec -= 1000000;
     }
 
     gettimeofday(&now, NULL);
-    nap = target.tv_usec - now.tv_usec;
-    if (now.tv_sec != target.tv_sec) {
-      if (now.tv_sec > target.tv_sec) nap = 0;
-      else if (target.tv_sec - now.tv_sec == 1) nap += 1000000;
+    nap = state->target.tv_usec - now.tv_usec;
+    if (now.tv_sec != state->target.tv_sec) {
+      if (now.tv_sec > state->target.tv_sec) nap = 0;
+      else if (state->target.tv_sec - now.tv_sec == 1) nap += 1000000;
       else nap = 1000000;
     }
     if (nap > delta) nap = delta;
@@ -289,14 +303,15 @@ void wait_for_time_slot(int delta)
 
 
 
-char *key;
-char packet[65535];
+//char *key;
+//char packet[65535];
 
 int send_rtp_packet(int fd, struct sockaddr *addr, socklen_t addrlen,
-    rtp_header *rtp, const unsigned char *opus_packet)
+    rtp_header *rtp, const unsigned char *opus_packet, char *key)
 {
   //unsigned char *packet, *opus_encrypted_pack; //DANGEROUS
   int ret;
+  char packet[65535];
 
   update_rtp_header(rtp);
   //packet = malloc(rtp->header_size + rtp->payload_size + crypto_secretbox_MACBYTES); //DANGEROUS
@@ -341,22 +356,20 @@ int send_rtp_packet(int fd, struct sockaddr *addr, socklen_t addrlen,
 }
 
 
-int dis_ssrc;
-
-int delay_count = 0;
 
 int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
-    socklen_t addrlen, int payload_type)
+    socklen_t addrlen, int payload_type, char *key, int ssrc)
 {
-  /* try to use POSIX monotonic clock */
-  static int initialized = 0;
-  static clockid_t clock_id;
-  static struct timespec start, start2, end;
+  /* POSIX MONOTONIC CLOCK MEASURER */
+  clockid_t clock_id;
+  struct timespec start, start2, end;
   sysconf(_SC_MONOTONIC_CLOCK);
   clock_id = CLOCK_MONOTONIC;
   clock_gettime(clock_id, &start);
   int last_frame_corrected = 0;
 
+  time_slot_wait_t state;
+  init_time_slot_wait(&state);
 
   rtp_header rtp;
   int fd;
@@ -395,7 +408,7 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
   rtp.mark = 0;
   rtp.seq = rand();
   rtp.time = rand();
-  rtp.ssrc = dis_ssrc; //= rand();  ////MODIFIED FROM ORIGINAL !!!!DANGEROUS
+  rtp.ssrc = ssrc; //= rand();  ////MODIFIED FROM ORIGINAL !!!!DANGEROUS
   rtp.csrc = NULL;
   rtp.header_size = 0;
   rtp.payload_size = 0;
@@ -465,7 +478,7 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
         rtp.payload_size = op.bytes;
         //fprintf(stderr, "rtp %d %d %d %3d ms %5d bytes\n",
         //    rtp.type, rtp.seq, rtp.time, samples/48, rtp.payload_size);
-        send_rtp_packet(fd, addr, addrlen, &rtp, op.packet);
+        send_rtp_packet(fd, addr, addrlen, &rtp, op.packet, key);
 
 
         clock_gettime(clock_id, &end);
@@ -474,7 +487,7 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
         //fprintf(stderr, "Time elapsed: %ld, should be:%ld us", usecdiff, samples*125/6);
         
         if(usecdiff > 25000 || usecdiff < 15000){
-          fprintf(stderr, "Abnormal Frame: ........................................................... %ld\n", usecdiff);
+          fprintf(stderr, "WHOOPS...Abnormal Frame: ........................................................... %ld\n", usecdiff);
         }/*else{
           fprintf(stderr, "\n");
         }*/
@@ -507,9 +520,9 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
         //fprintf(stderr, "raw time: %ld\n", nsecdiff);
 
         /* convert number of 48 kHz samples to nanoseconds without overflow */
-        wait_for_time_slot(samples*62500/3);
+        wait_for_time_slot(samples*62500/3, &state);
 
-        clock_gettime(clock_id, &start2);
+        //clock_gettime(clock_id, &start2);
       }
     }
   }
@@ -523,7 +536,7 @@ int rtp_send_file_to_addr(const char *filename, struct sockaddr *addr,
 
 
 int rtp_send_file(const char *filename, const char *dest, const char *port,
-        int payload_type)
+        int payload_type, char *key, int ssrc)
 {
   int ret;
   struct addrinfo *addrs;
@@ -541,7 +554,7 @@ int rtp_send_file(const char *filename, const char *dest, const char *port,
     return -1;
   }
   ret = rtp_send_file_to_addr(filename, addrs->ai_addr, addrs->ai_addrlen,
-    payload_type);
+    payload_type, key, ssrc);
   freeaddrinfo(addrs);
   return ret;
 }
@@ -600,8 +613,8 @@ int encryption(){
 }
 
 int dummy(){
-  wait_for_time_slot(9999999);
-  wait_for_time_slot(999999999);
+  //wait_for_time_slot(9999999);
+  //wait_for_time_slot(999999999);
 
   if (sodium_init() == -1)
     return -1;
@@ -623,11 +636,10 @@ int dummy(){
 
 
 int lol() {
-  delay_count = 0;
   char diskey[32] = {97,237,125,242,73,232,161,10,30,215,179,93,65,128,97,234,18,153,139,186,120,155,231,51,85,99,17,254,94,174,86,113};
-  key = diskey;
-  dis_ssrc = 372972;
-  rtp_send_file("testingfile.ogg", "213.179.201.59", "50001", 120);
+  char *key = diskey;
+  //dis_ssrc = 372972;
+  rtp_send_file("testingfile.ogg", "213.179.201.59", "50001", 120, key, 0);
 }
 
 
@@ -846,7 +858,6 @@ int main(int argc, char *argv[], char *envp[]){
             }
         }*/
         
-        delay_count = 0;
         char diskey[32];
         char *keystr = argv[4];
         char *end;
@@ -861,9 +872,8 @@ int main(int argc, char *argv[], char *envp[]){
         diskey[31] = atoi(keystr);
 
 
-        key = diskey;
-        dis_ssrc = atoi(argv[3]);
-        rtp_send_file("audiostream.file.out", argv[1], argv[2], 120);
+        int ssrc = atoi(argv[3]);
+        rtp_send_file("audiostream.file.out", argv[1], argv[2], 120, diskey, ssrc);
 
         Waitpid(pid, NULL, 0);
     }
